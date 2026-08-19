@@ -453,22 +453,113 @@ function getMessageTimestamp(msg, timestampDB) {
   return null;
 }
 
+// ========================
+// 用户消息时间戳记忆
+// ========================
+
+const TIMESTAMP_DB_PATH = runtimeFile("message_timestamps.json");
+
+function loadTimestampDB() {
+  if (!fs.existsSync(TIMESTAMP_DB_PATH)) return {};
+
+  try {
+    return fs.readJsonSync(TIMESTAMP_DB_PATH);
+  } catch (err) {
+    console.log("读取 message_timestamps.json 失败:", err.message);
+    return {};
+  }
+}
+
+function makeTimestampFingerprint(msg) {
+  const raw = normalizeContentToText(msg?.content);
+  const content = raw.trim().slice(0, 150);
+  return `${msg?.role || ""}::${content}`;
+}
+
+function stripLeadingTimestamp(content) {
+  return String(content || "")
+    .replace(
+      /^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/,
+      ""
+    )
+    .trim();
+}
+
+function makeTimestampFingerprintStripped(msg) {
+  const raw = normalizeContentToText(msg?.content);
+  const content = stripLeadingTimestamp(raw).slice(0, 150);
+  return `${msg?.role || ""}::${content}`;
+}
+
 function getLastUserTime(messages) {
-  const timestampDB = loadTimestampDB();
-  const reversed = [...messages].reverse();
+  const tsDB = loadTimestampDB();
+
+  console.log(
+    `时间线消息数=${Array.isArray(messages) ? messages.length : 0} | 时间戳库条目=${Object.keys(tsDB).length}`
+  );
+
+  const reversed = [...(Array.isArray(messages) ? messages : [])].reverse();
 
   for (const msg of reversed) {
     if (msg?.role !== "user") continue;
 
-    const timestamp = getMessageTimestamp(msg, timestampDB);
+    const content = normalizeContentToText(msg.content);
 
-    if (timestamp) {
+    // <system> 伪 user 消息不能算用户真正发送的消息
+    if (content.trim().startsWith("<system>")) continue;
+
+    // --------------------------------
+    // 方案 1：直接从消息正文解析时间
+    // --------------------------------
+
+    const parsed = parseTimelineTimestamp(content);
+
+    if (parsed) {
       console.log(
-        `找到用户最后消息时间：${formatDateTimeInTimeZone(timestamp, TIME_ZONE)}`
+        `找到用户消息正文时间：${parsed.toISOString()}`
       );
-      return timestamp;
+      return parsed;
+    }
+
+    // --------------------------------
+    // 方案 2：从 message_timestamps.json 查询
+    // --------------------------------
+
+    const fp = makeTimestampFingerprint(msg);
+
+    if (tsDB[fp]) {
+      const remembered = new Date(tsDB[fp]);
+
+      if (!Number.isNaN(remembered.getTime())) {
+        console.log(
+          `从时间戳库找到用户时间：${remembered.toISOString()}`
+        );
+        return remembered;
+      }
+    }
+
+    // --------------------------------
+    // 方案 3：去掉时间前缀后再次查询
+    // --------------------------------
+
+    const fpStripped = makeTimestampFingerprintStripped(msg);
+
+    if (tsDB[fpStripped]) {
+      const remembered = new Date(tsDB[fpStripped]);
+
+      if (!Number.isNaN(remembered.getTime())) {
+        console.log(
+          `从时间戳库找到用户时间（去前缀匹配）：${remembered.toISOString()}`
+        );
+        return remembered;
+      }
     }
   }
+
+  console.log("时间戳库中也没有找到对应的最后一条用户消息时间");
+
+  return null;
+}
 
   console.log(
     `未找到用户时间｜时间线消息数=${messages.length}｜时间戳库条目=${Object.keys(timestampDB).length}`
