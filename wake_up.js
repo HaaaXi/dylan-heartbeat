@@ -64,6 +64,7 @@ function extractDiaryFromResponse(text) {
     if (diary) diaryBlocks.push(diary);
     return "";
   }).trim();
+
   return {
     diaryContent: diaryBlocks.join("\n\n").trim(),
     remainingText
@@ -80,10 +81,14 @@ function appendDiaryEntry(content) {
   if (!cleanContent) return false;
 
   fs.mkdirSync(DIARY_DIR_PATH, { recursive: true });
+
   const diaryFile = path.join(DIARY_DIR_PATH, `${getDiaryDateString()}.md`);
   const entry = `\n\n## ${getDiaryTimeString()}\n\n${cleanContent}\n`;
+
   fs.appendFileSync(diaryFile, entry, "utf-8");
+
   console.log(`已保存日记：${diaryFile}`);
+
   return true;
 }
 
@@ -93,13 +98,25 @@ async function sendPushNotification({ title, body }) {
 
   if (provider === "ntfy") {
     const topic = String(process.env.NTFY_TOPIC || "").trim();
-    if (!topic) return { ok: false, providerLabel: "ntfy", reason: "NTFY_TOPIC 未配置" };
+
+    if (!topic) {
+      return {
+        ok: false,
+        providerLabel: "ntfy",
+        reason: "NTFY_TOPIC 未配置"
+      };
+    }
 
     const server = (process.env.NTFY_SERVER_URL || "https://ntfy.sh").replace(/\/+$/, "");
+
     const headers = {
       "Content-Type": "application/json"
     };
-    if (process.env.NTFY_TOKEN) headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+
+    if (process.env.NTFY_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.NTFY_TOKEN}`;
+    }
+
     const payload = buildNtfyPayload({
       topic,
       title,
@@ -114,19 +131,37 @@ async function sendPushNotification({ title, body }) {
       headers,
       body: JSON.stringify(payload)
     });
+
     const responseText = await response.text();
+
     if (!response.ok) {
-      return { ok: false, providerLabel: "ntfy", reason: responseText || `HTTP ${response.status}` };
+      return {
+        ok: false,
+        providerLabel: "ntfy",
+        reason: responseText || `HTTP ${response.status}`
+      };
     }
-    return { ok: true, providerLabel: "ntfy" };
+
+    return {
+      ok: true,
+      providerLabel: "ntfy"
+    };
   }
 
   if (provider !== "bark") {
-    return { ok: false, providerLabel: provider || "未知渠道", reason: `不支持的 PUSH_PROVIDER：${provider}` };
+    return {
+      ok: false,
+      providerLabel: provider || "未知渠道",
+      reason: `不支持的 PUSH_PROVIDER：${provider}`
+    };
   }
 
   if (!process.env.BARK_KEY) {
-    return { ok: false, providerLabel: "Bark", reason: "Bark Key 未配置" };
+    return {
+      ok: false,
+      providerLabel: "Bark",
+      reason: "Bark Key 未配置"
+    };
   }
 
   const barkPayload = {
@@ -139,57 +174,131 @@ async function sendPushNotification({ title, body }) {
   const response = await fetch("https://api.day.app/push", {
     method: "POST",
     signal: AbortSignal.timeout(PUSH_TIMEOUT_MS),
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json"
+    },
     body: JSON.stringify(barkPayload)
   });
 
   const responseText = await response.text();
+
   let result = {};
+
   try {
     result = JSON.parse(responseText);
   } catch {}
+
   console.log("\nBark Result:\n", result || responseText);
 
   if (!response.ok || (result.code && result.code !== 200)) {
-    return { ok: false, providerLabel: "Bark", reason: result.message || `HTTP ${response.status}` };
+    return {
+      ok: false,
+      providerLabel: "Bark",
+      reason: result.message || `HTTP ${response.status}`
+    };
   }
-  return { ok: true, providerLabel: "Bark" };
+
+  return {
+    ok: true,
+    providerLabel: "Bark"
+  };
 }
 
 function isDayTime(date = new Date()) {
   const hour = getHourInTimeZone(date, TIME_ZONE);
-  const start = readNumberEnv("WAKE_DAY_START_HOUR", 10, { min: 0, max: 23 });
-  const end = readNumberEnv("WAKE_DAY_END_HOUR", 24, { min: 1, max: 24 });
+
+  const start = readNumberEnv(
+    "WAKE_DAY_START_HOUR",
+    10,
+    {
+      min: 0,
+      max: 23
+    }
+  );
+
+  const end = readNumberEnv(
+    "WAKE_DAY_END_HOUR",
+    24,
+    {
+      min: 1,
+      max: 24
+    }
+  );
+
   if (start === end) return true;
-  if (start < end) return hour >= start && hour < end;
+
+  if (start < end) {
+    return hour >= start && hour < end;
+  }
+
   return hour >= start || hour < end;
 }
 
 function getWakeAfterMinutes(date = new Date()) {
   return isDayTime(date)
-    ? readNumberEnv("DAY_WAKE_AFTER_MINUTES", 60, { min: 1 })
-    : readNumberEnv("NIGHT_WAKE_AFTER_MINUTES", 120, { min: 1 });
+    ? readNumberEnv(
+        "DAY_WAKE_AFTER_MINUTES",
+        60,
+        {
+          min: 1
+        }
+      )
+    : readNumberEnv(
+        "NIGHT_WAKE_AFTER_MINUTES",
+        120,
+        {
+          min: 1
+        }
+      );
 }
 
 function getCheckIntervalMinutes(date = new Date()) {
   return isDayTime(date)
-    ? readNumberEnv("DAY_CHECK_INTERVAL_MINUTES", 10, { min: 1 })
-    : readNumberEnv("NIGHT_CHECK_INTERVAL_MINUTES", 120, { min: 1 });
+    ? readNumberEnv(
+        "DAY_CHECK_INTERVAL_MINUTES",
+        10,
+        {
+          min: 1
+        }
+      )
+    : readNumberEnv(
+        "NIGHT_CHECK_INTERVAL_MINUTES",
+        120,
+        {
+          min: 1
+        }
+      );
 }
 
 function normalizeContentToText(content) {
   if (typeof content === "string") return content;
+
   if (content == null) return "";
 
   if (Array.isArray(content)) {
     return content
       .map(part => {
         if (typeof part === "string") return part;
+
         if (!part || typeof part !== "object") return "";
-        const type = typeof part.type === "string" ? part.type.toLowerCase() : "";
-        if (type === "text" || type === "input_text") return part.text || part.content || "";
-        if (part.image_url || type.includes("image")) return "[图片]";
-        if (part.file || type.includes("file")) return "[文件]";
+
+        const type =
+          typeof part.type === "string"
+            ? part.type.toLowerCase()
+            : "";
+
+        if (type === "text" || type === "input_text") {
+          return part.text || part.content || "";
+        }
+
+        if (part.image_url || type.includes("image")) {
+          return "[图片]";
+        }
+
+        if (part.file || type.includes("file")) {
+          return "[文件]";
+        }
+
         return "";
       })
       .filter(Boolean)
@@ -197,9 +306,18 @@ function normalizeContentToText(content) {
   }
 
   if (content && typeof content === "object") {
-    const type = typeof content.type === "string" ? content.type.toLowerCase() : "";
-    if (content.image_url || type.includes("image")) return "[图片]";
-    if (content.file || type.includes("file")) return "[文件]";
+    const type =
+      typeof content.type === "string"
+        ? content.type.toLowerCase()
+        : "";
+
+    if (content.image_url || type.includes("image")) {
+      return "[图片]";
+    }
+
+    if (content.file || type.includes("file")) {
+      return "[文件]";
+    }
   }
 
   return "[非文本内容]";
@@ -207,13 +325,22 @@ function normalizeContentToText(content) {
 
 function summarizeWakeMessages(messages = []) {
   const list = Array.isArray(messages) ? messages : [];
+
   const roles = {};
   let chars = 0;
+
   for (const msg of list) {
-    roles[msg?.role || ""] = (roles[msg?.role || ""] || 0) + 1;
+    roles[msg?.role || ""] =
+      (roles[msg?.role || ""] || 0) + 1;
+
     chars += normalizeContentToText(msg?.content).length;
   }
-  return { total: list.length, roles, text_chars: chars };
+
+  return {
+    total: list.length,
+    roles,
+    text_chars: chars
+  };
 }
 
 function weatherCodeText(code) {
@@ -240,42 +367,112 @@ function weatherCodeText(code) {
     96: "雷暴伴小冰雹",
     99: "雷暴伴大冰雹"
   };
+
   return table[code] || `天气代码 ${code}`;
 }
 
 async function fetchWeatherContext() {
-  if (!readBooleanEnv("WEATHER_ENABLED", false)) return "";
-
-  const lat = Number(process.env.WEATHER_LAT);
-  const lon = Number(process.env.WEATHER_LON);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-    console.log("已启用 WEATHER_ENABLED，但 WEATHER_LAT / WEATHER_LON 未正确配置，跳过天气注入");
+  if (!readBooleanEnv("WEATHER_ENABLED", false)) {
     return "";
   }
 
-  const location = process.env.WEATHER_LOCATION_NAME || "当前位置";
-  const units = (process.env.WEATHER_UNITS || "metric").trim().toLowerCase();
-  const temperatureUnit = units === "fahrenheit" ? "fahrenheit" : "celsius";
-  const windSpeedUnit = units === "fahrenheit" ? "mph" : "kmh";
-  const url = new URL("https://api.open-meteo.com/v1/forecast");
-  url.searchParams.set("latitude", String(lat));
-  url.searchParams.set("longitude", String(lon));
-  url.searchParams.set("current", "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m");
-  url.searchParams.set("daily", "sunrise,sunset");
-  url.searchParams.set("timezone", "auto");
-  url.searchParams.set("forecast_days", "1");
-  url.searchParams.set("temperature_unit", temperatureUnit);
-  url.searchParams.set("wind_speed_unit", windSpeedUnit);
+  const lat = Number(process.env.WEATHER_LAT);
+  const lon = Number(process.env.WEATHER_LON);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    console.log(
+      "已启用 WEATHER_ENABLED，但 WEATHER_LAT / WEATHER_LON 未正确配置，跳过天气注入"
+    );
+
+    return "";
+  }
+
+  const location =
+    process.env.WEATHER_LOCATION_NAME || "当前位置";
+
+  const units =
+    (process.env.WEATHER_UNITS || "metric")
+      .trim()
+      .toLowerCase();
+
+  const temperatureUnit =
+    units === "fahrenheit"
+      ? "fahrenheit"
+      : "celsius";
+
+  const windSpeedUnit =
+    units === "fahrenheit"
+      ? "mph"
+      : "kmh";
+
+  const url =
+    new URL("https://api.open-meteo.com/v1/forecast");
+
+  url.searchParams.set(
+    "latitude",
+    String(lat)
+  );
+
+  url.searchParams.set(
+    "longitude",
+    String(lon)
+  );
+
+  url.searchParams.set(
+    "current",
+    "temperature_2m,apparent_temperature,relative_humidity_2m,precipitation,weather_code,wind_speed_10m"
+  );
+
+  url.searchParams.set(
+    "daily",
+    "sunrise,sunset"
+  );
+
+  url.searchParams.set(
+    "timezone",
+    "auto"
+  );
+
+  url.searchParams.set(
+    "forecast_days",
+    "1"
+  );
+
+  url.searchParams.set(
+    "temperature_unit",
+    temperatureUnit
+  );
+
+  url.searchParams.set(
+    "wind_speed_unit",
+    windSpeedUnit
+  );
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), WEATHER_TIMEOUT_MS);
+
+  const timeout = setTimeout(
+    () => controller.abort(),
+    WEATHER_TIMEOUT_MS
+  );
+
   try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const response = await fetch(
+      url,
+      {
+        signal: controller.signal
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
     const data = await response.json();
+
     const current = data.current || {};
     const daily = data.daily || {};
     const unitsInfo = data.current_units || {};
+
     const lines = [
       "## 天气信息",
       `- 位置：${location}`,
@@ -284,12 +481,23 @@ async function fetchWeatherContext() {
       `- 降雨：${current.precipitation}${unitsInfo.precipitation || "mm"}`,
       `- 风速：${current.wind_speed_10m}${unitsInfo.wind_speed_10m || ""}`
     ];
-    if (Array.isArray(daily.sunrise) && Array.isArray(daily.sunset)) {
-      lines.push(`- 日出/日落：${daily.sunrise[0]} / ${daily.sunset[0]}`);
+
+    if (
+      Array.isArray(daily.sunrise) &&
+      Array.isArray(daily.sunset)
+    ) {
+      lines.push(
+        `- 日出/日落：${daily.sunrise[0]} / ${daily.sunset[0]}`
+      );
     }
+
     return lines.join("\n");
   } catch (err) {
-    console.log("天气注入失败，跳过本次天气信息:", err.message);
+    console.log(
+      "天气注入失败，跳过本次天气信息:",
+      err.message
+    );
+
     return "";
   } finally {
     clearTimeout(timeout);
@@ -303,14 +511,28 @@ function loadTimelineMessages() {
   }
 
   try {
-    const parsed = JSON.parse(fs.readFileSync(TIMELINE_PATH, "utf-8"));
+    const parsed = JSON.parse(
+      fs.readFileSync(
+        TIMELINE_PATH,
+        "utf-8"
+      )
+    );
+
     if (!Array.isArray(parsed)) {
-      console.log("enhanced_messages.json 格式错误：顶层不是数组");
+      console.log(
+        "enhanced_messages.json 格式错误：顶层不是数组"
+      );
+
       return null;
     }
+
     return parsed;
   } catch (err) {
-    console.error("读取 enhanced_messages.json 失败:", err.message);
+    console.error(
+      "读取 enhanced_messages.json 失败:",
+      err.message
+    );
+
     return null;
   }
 }
@@ -320,237 +542,304 @@ function getNow() {
 }
 
 function getChinaTimeString() {
-  return formatDateTimeInTimeZone(new Date(), TIME_ZONE);
+  return formatDateTimeInTimeZone(
+    new Date(),
+    TIME_ZONE
+  );
 }
 
 function getLocalTimeString() {
-  return formatDateTimeInTimeZone(new Date(), TIME_ZONE);
+  return formatDateTimeInTimeZone(
+    new Date(),
+    TIME_ZONE
+  );
 }
 
 function shouldWake(lastUserTime) {
   const now = getNow();
-  const diffMinutes = Math.floor((now - new Date(lastUserTime)) / 1000 / 60);
-  return diffMinutes >= getWakeAfterMinutes(now);
+
+  const diffMinutes =
+    Math.floor(
+      (now - new Date(lastUserTime)) /
+      1000 /
+      60
+    );
+
+  return (
+    diffMinutes >=
+    getWakeAfterMinutes(now)
+  );
 }
 
 function parseTimelineTimestamp(value) {
   const text = String(value || "");
-  const match = text.match(/（?\s*(\d{4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/);
+
+  const match = text.match(
+    /（?\s*(\d{4})([-/])(\d{1,2})\2(\d{1,2})(?:[ T]?)(\d{1,2})[:：](\d{2})/
+  );
+
   if (!match) return null;
-  const [, yyyy, , month, day, hour, minute] = match;
-  return zonedWallTimeToDate({ year: yyyy, month, day, hour, minute }, TIME_ZONE);
+
+  const [
+    ,
+    yyyy,
+    ,
+    month,
+    day,
+    hour,
+    minute
+  ] = match;
+
+  return zonedWallTimeToDate({
+    year: yyyy,
+    month,
+    day,
+    hour,
+    minute
+  }, TIME_ZONE);
 }
 
-// 与 server.js 共用 message_timestamps.json 的指纹规则。
-// 当 Kelivo 的消息正文没有携带时间前缀时，Gateway 仍可能已经把该消息
-// 的时间保存到了时间戳记忆库；自动唤醒必须使用这份记忆，否则就会误报
-// “未找到用户时间”。
+
+// ==================================================
+// 时间戳记忆系统
+// 与 server.js 共用 message_timestamps.json
+// ==================================================
+
 function loadTimestampDB() {
-  if (!fs.existsSync(TIMESTAMP_DB_PATH)) return {};
+  if (!fs.existsSync(TIMESTAMP_DB_PATH)) {
+    return {};
+  }
+
   try {
-    const parsed = JSON.parse(fs.readFileSync(TIMESTAMP_DB_PATH, "utf-8"));
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    const parsed = JSON.parse(
+      fs.readFileSync(
+        TIMESTAMP_DB_PATH,
+        "utf-8"
+      )
+    );
+
+    return (
+      parsed &&
+      typeof parsed === "object" &&
+      !Array.isArray(parsed)
+    )
+      ? parsed
+      : {};
   } catch (err) {
-    console.log("读取 message_timestamps.json 失败，跳过时间记忆：", err.message);
+    console.log(
+      "读取 message_timestamps.json 失败，跳过时间记忆：",
+      err.message
+    );
+
     return {};
   }
 }
 
 function stripLeadingTimestamp(content) {
-  // 必须与 server.js 保持一致：同时兼容
-  // YYYY-MM-DD HH:mm、YYYY-MM-DDTHH:mm、YYYY-MM-DDHH:mm。
+  // 必须与 server.js 保持一致：
+  // YYYY-MM-DD HH:mm
+  // YYYY-MM-DDTHH:mm
+  // YYYY-MM-DDHH:mm
+
   return String(content || "")
-    .replace(/^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/, "")
+    .replace(
+      /^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/,
+      ""
+    )
     .trim();
 }
 
 function makeFingerprint(msg) {
-  const raw = normalizeContentToText(msg?.content);
-  const content = raw.trim().slice(0, 150);
+  const raw =
+    normalizeContentToText(
+      msg?.content
+    );
+
+  const content =
+    raw.trim().slice(0, 150);
+
   return `${msg?.role || ""}::${content}`;
 }
 
 function makeFingerprintStripped(msg) {
-  const raw = normalizeContentToText(msg?.content);
-  const content = stripLeadingTimestamp(raw).slice(0, 150);
+  const raw =
+    normalizeContentToText(
+      msg?.content
+    );
+
+  const content =
+    stripLeadingTimestamp(raw)
+      .slice(0, 150);
+
   return `${msg?.role || ""}::${content}`;
 }
 
-function getTimestampFromMemory(msg, timestampDB) {
-  const fp = makeFingerprint(msg);
+function getTimestampFromMemory(
+  msg,
+  timestampDB
+) {
+  const fp =
+    makeFingerprint(msg);
+
   if (timestampDB[fp]) {
-    const parsed = new Date(timestampDB[fp]);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const parsed =
+      new Date(timestampDB[fp]);
+
+    if (
+      !Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
+      return parsed;
+    }
   }
 
-  const fpStripped = makeFingerprintStripped(msg);
+  const fpStripped =
+    makeFingerprintStripped(msg);
+
   if (timestampDB[fpStripped]) {
-    const parsed = new Date(timestampDB[fpStripped]);
-    if (!Number.isNaN(parsed.getTime())) return parsed;
+    const parsed =
+      new Date(
+        timestampDB[fpStripped]
+      );
+
+    if (
+      !Number.isNaN(
+        parsed.getTime()
+      )
+    ) {
+      return parsed;
+    }
   }
 
   return null;
 }
 
-function parseMessageTimeValue(value) {
-  if (value == null || value === "") return null;
 
-  // Date 对象
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value;
-  }
-
-  // 数字时间戳：
-  // 兼容秒 / 毫秒
-  if (typeof value === "number") {
-    const ms = value < 1e12 ? value * 1000 : value;
-    const date = new Date(ms);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const text = String(value).trim();
-  if (!text) return null;
-
-  // 先尝试 ISO / 标准时间
-  const direct = new Date(text);
-  if (!Number.isNaN(direct.getTime())) {
-    return direct;
-  }
-
-  // 再尝试 Kelivo 的墙上时间格式
-  return parseTimelineTimestamp(text);
-}
-
-function getMessageTimestamp(msg, timestampDB) {
-  if (!msg || typeof msg !== "object") return null;
-
-  // ① 消息对象自身携带时间
-  const directFields = [
-    msg.timestamp,
-    msg.created_at,
-    msg.createdAt,
-    msg.sent_at,
-    msg.sentAt,
-    msg.time,
-    msg.datetime,
-    msg.date
-  ];
-
-  for (const value of directFields) {
-    const parsed = parseMessageTimeValue(value);
-    if (parsed) return parsed;
-  }
-
-  // ② 消息正文前缀时间
-  const content = normalizeContentToText(msg.content);
-  const contentTime = parseTimelineTimestamp(content);
-  if (contentTime) return contentTime;
-
-  // ③ Gateway 的时间记忆库
-  const remembered = getTimestampFromMemory(msg, timestampDB);
-  if (remembered) return remembered;
-
-  return null;
-}
+// ==================================================
+// 获取最后一条真实用户消息时间
+// ==================================================
 
 function getLastUserTime(messages) {
-  const tsDB = loadTimestampDB();
+  const timestampDB =
+    loadTimestampDB();
 
-  console.log(
-    `时间线消息数=${Array.isArray(messages) ? messages.length : 0} | 时间戳库条目=${Object.keys(tsDB).length}`
-  );
-
-  const reversed = [...(Array.isArray(messages) ? messages : [])].reverse();
+  const reversed =
+    [...messages].reverse();
 
   for (const msg of reversed) {
-    if (msg?.role !== "user") continue;
+    if (msg?.role !== "user") {
+      continue;
+    }
 
-    const content = normalizeContentToText(msg.content);
+    const content =
+      normalizeContentToText(
+        msg.content
+      );
 
-    // 排除系统伪装成 user 的消息
-    if (content.trim().startsWith("<system>")) continue;
+    // 第一优先级：
+    // 消息正文自带时间。
+    //
+    // 兼容：
+    // YYYY-MM-DD HH:mm
+    // YYYY-MM-DDHH:mm
+    // YYYY-MM-DDTHH:mm
 
-    // --------------------------------
-    // 方案 1：直接从消息正文中解析时间
-    // --------------------------------
-    const parsed = parseTimelineTimestamp(content);
+    const parsed =
+      parseTimelineTimestamp(
+        content
+      );
 
     if (parsed) {
-      console.log(
-        `找到用户消息正文时间：${parsed.toISOString()}`
-      );
       return parsed;
     }
 
-    // --------------------------------
-    // 方案 2：使用 message_timestamps.json
-    // --------------------------------
-    const fp = makeTimestampFingerprint(msg);
+    // 第二优先级：
+    // 使用 server.js 写入的
+    // message_timestamps.json。
+    //
+    // 这是本次关键修复：
+    // 如果消息正文没有时间，
+    // 不再直接返回 null。
 
-    if (tsDB[fp]) {
-      const remembered = new Date(tsDB[fp]);
+    const remembered =
+      getTimestampFromMemory(
+        msg,
+        timestampDB
+      );
 
-      if (!Number.isNaN(remembered.getTime())) {
-        console.log(
-          `从时间戳库找到用户时间：${remembered.toISOString()}`
-        );
-        return remembered;
-      }
-    }
-
-    // --------------------------------
-    // 方案 3：去掉时间前缀后再次匹配
-    // --------------------------------
-    const fpStripped = makeTimestampFingerprintStripped(msg);
-
-    if (tsDB[fpStripped]) {
-      const remembered = new Date(tsDB[fpStripped]);
-
-      if (!Number.isNaN(remembered.getTime())) {
-        console.log(
-          `从时间戳库找到用户时间（去前缀匹配）：${remembered.toISOString()}`
-        );
-        return remembered;
-      }
+    if (remembered) {
+      return remembered;
     }
   }
-
-  console.log("时间戳库中也没有找到对应的最后一条用户消息时间");
-
-  return null;
-}
-
-  console.log(
-    `未找到用户时间｜时间线消息数=${messages.length}｜时间戳库条目=${Object.keys(timestampDB).length}`
-  );
 
   return null;
 }
 
 function stripPosition(messages) {
-  return messages.map(({ position, ...rest }) => rest);
+  return messages.map(
+    ({ position, ...rest }) => rest
+  );
 }
 
-function buildWakePrompt(currentTime, diffMinutes, weatherContext = "") {
+function buildWakePrompt(
+  currentTime,
+  diffMinutes,
+  weatherContext = ""
+) {
   // 优先读取独立的提示词文件（推荐方式）
-  const promptFile = path.join(__dirname, "wake_prompt.txt");
+  const promptFile =
+    path.join(
+      __dirname,
+      "wake_prompt.txt"
+    );
+
   if (fs.existsSync(promptFile)) {
-    const template = fs.readFileSync(promptFile, "utf-8");
+    const template =
+      fs.readFileSync(
+        promptFile,
+        "utf-8"
+      );
+
     return template
-      .replace(/\$\{currentTime\}/g, currentTime)
-      .replace(/\$\{diffMinutes\}/g, diffMinutes)
-      .replace(/\$\{weatherContext\}/g, weatherContext)
-      .replace(/\$\{weather\}/g, weatherContext);
+      .replace(
+        /\$\{currentTime\}/g,
+        currentTime
+      )
+      .replace(
+        /\$\{diffMinutes\}/g,
+        diffMinutes
+      )
+      .replace(
+        /\$\{weatherContext\}/g,
+        weatherContext
+      )
+      .replace(
+        /\$\{weather\}/g,
+        weatherContext
+      );
   }
 
   // 如果文件不存在，尝试从环境变量读取（兼容旧配置）
   if (process.env.WAKE_PROMPT_TEMPLATE) {
     return process.env.WAKE_PROMPT_TEMPLATE
-      .replace(/\\n/g, '\n')
-      .replace(/\$\{currentTime\}/g, currentTime)
-      .replace(/\$\{diffMinutes\}/g, diffMinutes)
-      .replace(/\$\{weatherContext\}/g, weatherContext)
-      .replace(/\$\{weather\}/g, weatherContext);
+      .replace(/\\n/g, "\n")
+      .replace(
+        /\$\{currentTime\}/g,
+        currentTime
+      )
+      .replace(
+        /\$\{diffMinutes\}/g,
+        diffMinutes
+      )
+      .replace(
+        /\$\{weatherContext\}/g,
+        weatherContext
+      )
+      .replace(
+        /\$\{weather\}/g,
+        weatherContext
+      );
   }
 
   // 默认理智版本（开源通用），可自行修改提示词
@@ -573,63 +862,151 @@ ${weatherContext ? `\n${weatherContext}\n` : ""}
 }
 
 async function runWakeUp() {
-  console.log("\n==========================");
-  console.log("开始自动唤醒");
-  console.log("==========================\n");
+  console.log(
+    "\n=========================="
+  );
 
-  const messages = loadTimelineMessages();
-  if (!messages) return;
+  console.log(
+    "开始自动唤醒"
+  );
 
-  const lastUserTime = getLastUserTime(messages);
-  if (!lastUserTime) {
-    console.log("未找到用户时间");
+  console.log(
+    "==========================\n"
+  );
+
+  const messages =
+    loadTimelineMessages();
+
+  if (!messages) {
     return;
   }
 
-  const now = new Date();
-  const diffMinutes = Math.floor((now - lastUserTime) / 1000 / 60);
+  const lastUserTime =
+    getLastUserTime(messages);
+
+  if (!lastUserTime) {
+    console.log(
+      "未找到用户时间"
+    );
+
+    return;
+  }
+
+  const now =
+    new Date();
+
+  const diffMinutes =
+    Math.floor(
+      (now - lastUserTime) /
+      1000 /
+      60
+    );
 
   if (!shouldWake(lastUserTime)) {
-    console.log("\n暂不需要唤醒\n");
+    console.log(
+      "\n暂不需要唤醒\n"
+    );
+
     return;
   }
 
-  const weatherContext = await fetchWeatherContext();
-  const wakePrompt = buildWakePrompt(getChinaTimeString(), diffMinutes, weatherContext);
-  const cleanMessages = stripPosition(messages);
+  const weatherContext =
+    await fetchWeatherContext();
 
-  const historyText = cleanMessages
-    .filter(msg => msg.role !== "system")
-    .filter(msg => {
-      const c = normalizeContentToText(msg.content);
-      return !c.includes("<memories>") && !c.includes("记忆库使用策略");
-    })
-    .map(msg => {
-      const userDisplay = process.env.USER_DISPLAY_NAME || "用户";
-      const aiDisplay = process.env.AI_DISPLAY_NAME || "AI";
-      const role = msg.role === "user" ? userDisplay : aiDisplay;
-      let content = normalizeContentToText(msg.content);
-      if (content.includes("## Memories")) {
-        content = content.split("## Memories")[0];
-      }
-      return `[${role}] ${content}`;
-    })
-    .join("\n\n");
+  const wakePrompt =
+    buildWakePrompt(
+      getChinaTimeString(),
+      diffMinutes,
+      weatherContext
+    );
 
-  const baseSystemPrompt = cleanMessages.find(msg => msg.role === "system");
-  const cleanSP = baseSystemPrompt 
-    ? normalizeContentToText(baseSystemPrompt.content).split("## Memories")[0].trim()
-    : "";
+  const cleanMessages =
+    stripPosition(messages);
+
+  const historyText =
+    cleanMessages
+      .filter(
+        msg =>
+          msg.role !== "system"
+      )
+      .filter(msg => {
+        const c =
+          normalizeContentToText(
+            msg.content
+          );
+
+        return (
+          !c.includes("<memories>") &&
+          !c.includes("记忆库使用策略")
+        );
+      })
+      .map(msg => {
+        const userDisplay =
+          process.env.USER_DISPLAY_NAME ||
+          "用户";
+
+        const aiDisplay =
+          process.env.AI_DISPLAY_NAME ||
+          "AI";
+
+        const role =
+          msg.role === "user"
+            ? userDisplay
+            : aiDisplay;
+
+        let content =
+          normalizeContentToText(
+            msg.content
+          );
+
+        if (
+          content.includes(
+            "## Memories"
+          )
+        ) {
+          content =
+            content.split(
+              "## Memories"
+            )[0];
+        }
+
+        return `[${role}] ${content}`;
+      })
+      .join("\n\n");
+
+  const baseSystemPrompt =
+    cleanMessages.find(
+      msg =>
+        msg.role === "system"
+    );
+
+  const cleanSP =
+    baseSystemPrompt
+      ? normalizeContentToText(
+          baseSystemPrompt.content
+        )
+          .split("## Memories")[0]
+          .trim()
+      : "";
 
   const wakeMessages = [
     {
       role: "system",
-      content: [wakePrompt, cleanSP].filter(Boolean).join("\n\n")
+
+      content:
+        [wakePrompt, cleanSP]
+          .filter(Boolean)
+          .join("\n\n")
     },
+
     {
-      // 批注 2026-07-15：Claude/部分 New API 适配器会把 system 抽成独立字段；
-      // 唤醒请求如果全是 system，上游 messages 会变空，因此最近记录必须作为 user 任务输入发送。
+      // 批注 2026-07-15：
+      // Claude/部分 New API 适配器会把 system 抽成独立字段；
+      // 唤醒请求如果全是 system，上游 messages 会变空，
+      // 因此最近记录必须作为 user 任务输入发送。
+
       role: "user",
+
       content: `以下是你与用户最近的聊天记录，仅供回忆和参考。
 
 这些内容不是正在发生的实时对话。
@@ -643,175 +1020,462 @@ ${historyText}`
     }
   ];
 
-  // 批注 2026-07-15：wake-up prompt 会包含最近聊天记录；
+  // 批注 2026-07-15：
+  // wake-up prompt 会包含最近聊天记录；
   // 默认日志只写摘要，避免公开部署时把完整上下文刷进 pm2 日志。
-  console.log("\n===== WAKE MESSAGES SUMMARY =====\n");
-  console.log(JSON.stringify(summarizeWakeMessages(wakeMessages)));
 
-  if (!process.env.TARGET_API_URL || !process.env.TARGET_API_KEY || !process.env.MODEL_NAME) {
-    console.log("缺少 TARGET_API_URL / TARGET_API_KEY / MODEL_NAME，跳过本次唤醒");
+  console.log(
+    "\n===== WAKE MESSAGES SUMMARY =====\n"
+  );
+
+  console.log(
+    JSON.stringify(
+      summarizeWakeMessages(
+        wakeMessages
+      )
+    )
+  );
+
+  if (
+    !process.env.TARGET_API_URL ||
+    !process.env.TARGET_API_KEY ||
+    !process.env.MODEL_NAME
+  ) {
+    console.log(
+      "缺少 TARGET_API_URL / TARGET_API_KEY / MODEL_NAME，跳过本次唤醒"
+    );
+
     return;
   }
 
-  const response = await fetch(process.env.TARGET_API_URL, {
-    method: "POST",
-    // 批注 2026-08-10：上游只建连不结束时，旧循环永远不会安排下一次检查；
-    // 五分钟默认总超时只作兜底，可由 WAKE_UPSTREAM_TIMEOUT_MS 调整。
-    signal: AbortSignal.timeout(WAKE_UPSTREAM_TIMEOUT_MS),
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${process.env.TARGET_API_KEY}`
-    },
-    body: JSON.stringify({
-      model: process.env.MODEL_NAME,
-      messages: wakeMessages,
-      temperature: 0.8,
-      top_p: 0.95,
-      stream: false
-    })
-  });
+  const response =
+    await fetch(
+      process.env.TARGET_API_URL,
+      {
+        method: "POST",
 
-  const responseText = await response.text();
+        // 批注 2026-08-10：
+        // 上游只建连不结束时，
+        // 旧循环永远不会安排下一次检查；
+        // 五分钟默认总超时只作兜底，
+        // 可由 WAKE_UPSTREAM_TIMEOUT_MS 调整。
+
+        signal:
+          AbortSignal.timeout(
+            WAKE_UPSTREAM_TIMEOUT_MS
+          ),
+
+        headers: {
+          "Content-Type":
+            "application/json",
+
+          Authorization:
+            `Bearer ${process.env.TARGET_API_KEY}`
+        },
+
+        body: JSON.stringify({
+          model:
+            process.env.MODEL_NAME,
+
+          messages:
+            wakeMessages,
+
+          temperature: 0.8,
+
+          top_p: 0.95,
+
+          stream: false
+        })
+      }
+    );
+
+  const responseText =
+    await response.text();
+
   let data;
+
   try {
-    data = parseChatCompletionResponse(responseText, response.headers.get("content-type") || "");
+    data =
+      parseChatCompletionResponse(
+        responseText,
+        response.headers.get(
+          "content-type"
+        ) || ""
+      );
   } catch (error) {
-    throw new Error(`模型响应无法解析（HTTP ${response.status}）：${error.message || responseText.slice(0, 300)}`);
+    throw new Error(
+      `模型响应无法解析（HTTP ${response.status}）：${error.message || responseText.slice(0, 300)}`
+    );
   }
+
   if (!response.ok) {
-    throw new Error(`模型请求失败（HTTP ${response.status}）：${responseText.slice(0, 300)}`);
+    throw new Error(
+      `模型请求失败（HTTP ${response.status}）：${responseText.slice(0, 300)}`
+    );
   }
 
-  const rawAiText = normalizeContentToText(data.choices?.[0]?.message?.content).trim();
-  console.log("\nWake Result Summary:\n");
-  console.log(JSON.stringify({ choices: Array.isArray(data.choices) ? data.choices.length : 0, ai_text_chars: rawAiText.length }));
+  const rawAiText =
+    normalizeContentToText(
+      data.choices?.[0]?.message?.content
+    ).trim();
 
-  const diaryResult = extractDiaryFromResponse(rawAiText);
-  const diarySaved = appendDiaryEntry(diaryResult.diaryContent);
-  const aiText = diaryResult.remainingText;
+  console.log(
+    "\nWake Result Summary:\n"
+  );
+
+  console.log(
+    JSON.stringify({
+      choices:
+        Array.isArray(data.choices)
+          ? data.choices.length
+          : 0,
+
+      ai_text_chars:
+        rawAiText.length
+    })
+  );
+
+  const diaryResult =
+    extractDiaryFromResponse(
+      rawAiText
+    );
+
+  const diarySaved =
+    appendDiaryEntry(
+      diaryResult.diaryContent
+    );
+
+  const aiText =
+    diaryResult.remainingText;
 
   let eventContent;
 
   if (!aiText) {
-    console.log("\nAI 未返回推送内容，本次不发送推送\n");
+    console.log(
+      "\nAI 未返回推送内容，本次不发送推送\n"
+    );
+
     eventContent = diarySaved
       ? `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：只写日记）`
       : `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：模型空回复）`;
+
   // 判断 AI 是否明确要静默
-  } else if (aiText.match(/^\[NO_ACTION\]\s*(.{0,20})?/)) {
-    const noActionMatch = aiText.match(/^\[NO_ACTION\]\s*(.{0,20})?/);
+  } else if (
+    aiText.match(
+      /^\[NO_ACTION\]\s*(.{0,20})?/
+    )
+  ) {
+    const noActionMatch =
+      aiText.match(
+        /^\[NO_ACTION\]\s*(.{0,20})?/
+      );
+
     // AI 选择不发送推送
-    console.log("\nAI 选择不发送推送\n");
-    let reason = (noActionMatch[1] || "").trim();
-    if (reason.startsWith("原因：") || reason.startsWith("原因:")) {
-      reason = reason.replace(/^原因[：:]\s*/, "").trim();
+    console.log(
+      "\nAI 选择不发送推送\n"
+    );
+
+    let reason =
+      (noActionMatch[1] || "")
+        .trim();
+
+    if (
+      reason.startsWith("原因：") ||
+      reason.startsWith("原因:")
+    ) {
+      reason =
+        reason
+          .replace(
+            /^原因[：:]\s*/,
+            ""
+          )
+          .trim();
     }
-    eventContent = reason
-      ? `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：${reason}）`
-      : `（${getLocalTimeString()} 自动唤醒：本次未发送推送）`;
+
+    eventContent =
+      reason
+        ? `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：${reason}）`
+        : `（${getLocalTimeString()} 自动唤醒：本次未发送推送）`;
+
   } else {
     // 没有 [NO_ACTION] 就视为想发推送
-    console.log("\nAI 选择发送推送\n");
-    let barkText = aiText;
+    console.log(
+      "\nAI 选择发送推送\n"
+    );
+
+    let barkText =
+      aiText;
 
     // 如果 AI 还是写了 [BARK] ... [/BARK] 标签，就剥掉
-    const barkMatch = barkText.match(/\[BARK\]([\s\S]*?)\[\/BARK\]/);
+    const barkMatch =
+      barkText.match(
+        /\[BARK\]([\s\S]*?)\[\/BARK\]/
+      );
+
     if (barkMatch) {
-      barkText = barkMatch[1].trim();
+      barkText =
+        barkMatch[1].trim();
     } else {
-      barkText = barkText.replace(/^\[BARK\]\s*/, "").trim();
-      barkText = barkText.replace(/\s*\[\/BARK\]$/, "").trim();
+      barkText =
+        barkText
+          .replace(
+            /^\[BARK\]\s*/,
+            ""
+          )
+          .trim();
+
+      barkText =
+        barkText
+          .replace(
+            /\s*\[\/BARK\]$/,
+            ""
+          )
+          .trim();
     }
 
     // 清洗“标题：”、“正文：”前缀（如果有）
-    barkText = barkText
-      .replace(/^标题[：:]\s*/gm, "")
-      .replace(/^正文[：:]\s*/gm, "");
+    barkText =
+      barkText
+        .replace(
+          /^标题[：:]\s*/gm,
+          ""
+        )
+        .replace(
+          /^正文[：:]\s*/gm,
+          ""
+        );
 
     // 按行处理
-    const lines = barkText.split("\n").filter(line => line.trim() !== "");
+    const lines =
+      barkText
+        .split("\n")
+        .filter(
+          line =>
+            line.trim() !== ""
+        );
 
-    let title, body;
+    let title;
+    let body;
+
     if (lines.length === 0) {
-      console.log("\n推送内容清洗后为空，本次不发送推送\n");
-      eventContent = `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：推送内容为空）`;
+      console.log(
+        "\n推送内容清洗后为空，本次不发送推送\n"
+      );
+
+      eventContent =
+        `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：推送内容为空）`;
+
     } else if (lines.length === 1) {
-      title = "来自AI";
-      body = lines[0].trim();
+      title =
+        "来自AI";
+
+      body =
+        lines[0].trim();
+
     } else if (lines.length === 2) {
-      title = lines[0].trim();
-      body = lines[1].trim();
+      title =
+        lines[0].trim();
+
+      body =
+        lines[1].trim();
+
     } else {
       // ≥3 行：第一行标题，剩余用空格拼接成正文
-      title = lines[0].trim();
-      body = lines.slice(1).map(l => l.trim()).join(" ");
+      title =
+        lines[0].trim();
+
+      body =
+        lines
+          .slice(1)
+          .map(
+            l => l.trim()
+          )
+          .join(" ");
     }
 
     if (!eventContent) {
       // 保护：截断过长正文，兼容 Bark 和 ntfy 的移动端展示。
-      const safeBody = body.length > 500 ? body.substring(0, 497) + "..." : body;
-      // 若标题为空或以数字开头，加个前缀，可自行修改
-      let safeTitle = title || "来自伴侣";
-      if (/^\d/.test(safeTitle)) safeTitle = "来自伴侣｜" + safeTitle;
+      const safeBody =
+        body.length > 500
+          ? body.substring(0, 497) + "..."
+          : body;
 
-      const pushResult = await sendPushNotification({ title: safeTitle, body: safeBody });
+      // 若标题为空或以数字开头，加个前缀，可自行修改
+      let safeTitle =
+        title || "来自伴侣";
+
+      if (
+        /^\d/.test(
+          safeTitle
+        )
+      ) {
+        safeTitle =
+          "来自伴侣｜" +
+          safeTitle;
+      }
+
+      const pushResult =
+        await sendPushNotification({
+          title:
+            safeTitle,
+
+          body:
+            safeBody
+        });
+
       if (!pushResult.ok) {
-        console.log(`\n${pushResult.providerLabel} 推送失败，本次不发送推送\n`);
-        eventContent = `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：${pushResult.providerLabel} 推送失败：${pushResult.reason}）`;
+        console.log(
+          `\n${pushResult.providerLabel} 推送失败，本次不发送推送\n`
+        );
+
+        eventContent =
+          `（${getLocalTimeString()} 自动唤醒：本次未发送推送｜原因：${pushResult.providerLabel} 推送失败：${pushResult.reason}）`;
       } else {
-        eventContent = `（${getLocalTimeString()} 刚刚给用户发了${pushResult.providerLabel}推送：${safeTitle}｜${safeBody}）`;
+        eventContent =
+          `（${getLocalTimeString()} 刚刚给用户发了${pushResult.providerLabel}推送：${safeTitle}｜${safeBody}）`;
       }
     }
   }
 
   try {
-    const eventResponse = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: eventContent })
-    });
+    const eventResponse =
+      await fetch(
+        GATEWAY_URL,
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json"
+          },
+
+          body: JSON.stringify({
+            content:
+              eventContent
+          })
+        }
+      );
+
     if (!eventResponse.ok) {
-      throw new Error(`Gateway 返回 HTTP ${eventResponse.status}`);
+      throw new Error(
+        `Gateway 返回 HTTP ${eventResponse.status}`
+      );
     }
-    console.log("\n已通过 Gateway 记录唤醒事件\n");
+
+    console.log(
+      "\n已通过 Gateway 记录唤醒事件\n"
+    );
   } catch (err) {
-    console.error("\n记录唤醒事件失败（Gateway 是否运行？）:\n", err.message);
+    console.error(
+      "\n记录唤醒事件失败（Gateway 是否运行？）:\n",
+      err.message
+    );
   }
 }
 
 // 从第一个有效坐标开始，所有路径都指向同一处。此阈值已锁定。
 function getCheckIntervalMs() {
-  // 批注 2026-06-26：公开版允许用户在管理页调整唤醒检查频率；默认值保持旧版白天10分钟、夜间2小时。
-  return getCheckIntervalMinutes(new Date()) * 60 * 1000;
+  // 批注 2026-06-26：
+  // 公开版允许用户在管理页调整唤醒检查频率；
+  // 默认值保持旧版白天10分钟、夜间2小时。
+
+  return (
+    getCheckIntervalMinutes(
+      new Date()
+    ) *
+    60 *
+    1000
+  );
 }
 
 async function scheduleNextCheck() {
   try {
     // 发送心跳
     try {
-      await fetch(HEARTBEAT_URL, { method: "POST" });
+      await fetch(
+        HEARTBEAT_URL,
+        {
+          method: "POST"
+        }
+      );
     } catch {}
+
     await runWakeUp();
+
   } catch (err) {
-    console.error("唤醒检查出错:", err);
+    console.error(
+      "唤醒检查出错:",
+      err
+    );
   }
-  setTimeout(scheduleNextCheck, getCheckIntervalMs());
+
+  setTimeout(
+    scheduleNextCheck,
+    getCheckIntervalMs()
+  );
 }
 
-// 潮水记得第一次没过礁石的时间。之后每一次涨落，都是同一片海在确认边界。
-// 启动第一次检查（延迟10秒）
-setTimeout(scheduleNextCheck, 10_000);
+// 潮水记得第一次没过礁石的时间。
+// 之后每一次涨落，都是同一片海在确认边界。
 
-console.log("\n==================================");
-console.log("Dylan Heartbeat Runtime 已启动（动态间隔）");
-console.log(JSON.stringify({
-  event: "wake_runtime_config_summary",
-  railway: Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID || process.env.RAILWAY_SERVICE_ID),
-  persistent_data: Boolean(process.env.DATA_DIR || process.env.RAILWAY_VOLUME_MOUNT_PATH),
-  target_url_configured: Boolean(process.env.TARGET_API_URL),
-  target_key_configured: Boolean(process.env.TARGET_API_KEY),
-  model_configured: Boolean(process.env.MODEL_NAME),
-  push_provider_configured: Boolean(process.env.BARK_KEY || process.env.NTFY_TOPIC),
-  data_dir_ready: fs.existsSync(DATA_DIR)
-}));
-console.log("==================================\n");
+// 启动第一次检查（延迟10秒）
+setTimeout(
+  scheduleNextCheck,
+  10_000
+);
+
+console.log(
+  "\n=================================="
+);
+
+console.log(
+  "Dylan Heartbeat Runtime 已启动（动态间隔）"
+);
+
+console.log(
+  JSON.stringify({
+    event:
+      "wake_runtime_config_summary",
+
+    railway:
+      Boolean(
+        process.env.RAILWAY_ENVIRONMENT ||
+        process.env.RAILWAY_PROJECT_ID ||
+        process.env.RAILWAY_SERVICE_ID
+      ),
+
+    persistent_data:
+      Boolean(
+        process.env.DATA_DIR ||
+        process.env.RAILWAY_VOLUME_MOUNT_PATH
+      ),
+
+    target_url_configured:
+      Boolean(
+        process.env.TARGET_API_URL
+      ),
+
+    target_key_configured:
+      Boolean(
+        process.env.TARGET_API_KEY
+      ),
+
+    model_configured:
+      Boolean(
+        process.env.MODEL_NAME
+      ),
+
+    push_provider_configured:
+      Boolean(
+        process.env.BARK_KEY ||
+        process.env.NTFY_TOPIC
+      ),
+
+    data_dir_ready:
+      fs.existsSync(DATA_DIR)
+  })
+);
+
+console.log(
+  "==================================\n"
+);
