@@ -1,39 +1,40 @@
-需要("dotenv").配置({ 安静的: 真正的 });
-常数 文件系统 = 需要("fs");
-常数 路径 = 需要("path");
-常数 { 有效载荷 } = 需要("./ntfy_priority");
-常数 { ensureDataDir, runtimeDirectory, runtimeFile } = 需要("./runtime_paths");
-常数 { parseChatCompletionResponse } = 需要("./upstream_response");
-常数 {
+require("dotenv").config({ quiet: true });
+const fs = require("fs");
+const path = require("path");
+const { buildNtfyPayload } = require("./ntfy_priority");
+const { ensureDataDir, runtimeDirectory, runtimeFile } = require("./runtime_paths");
+const { parseChatCompletionResponse } = require("./upstream_response");
+const {
   formatDateTimeInTimeZone,
   getDatePartsInTimeZone,
   getHourInTimeZone,
   resolveTimeZone,
-  日期
-} = 需要("./time_utils");
+  zonedWallTimeToDate
+} = require("./time_utils");
 
 // 批注 2026-08-10：与 Gateway 共用同一 DATA_DIR；未配置时仍落回项目目录，保护旧 VPS/本机部署。
-常数 DATA_DIR = ensureDataDir();
-常数 TIMELINE_PATH = runtimeFile("enhanced_messages.json");
-常数 港口 = 数量(过程.环境.港口) || 3000;
-常数 GATEWAY_BASE_URL = (过程.环境.GATEWAY_BASE_URL || `http://localhost:${港口}`).取代(/\/+$/, "");
-常数 GATEWAY_URL = `${GATEWAY_BASE_URL}/internal/wake-event`;
-常数 HEARTBEAT_URL = `${GATEWAY_BASE_URL}/internal/heartbeat`;
-常数 TIME_ZONE = resolveTimeZone();
-常数 WEATHER_TIMEOUT_MS = 5000;
-常数 DIARY_DIR_NAME = 过程.环境.DIARY_DIR || "diary";
-常数 DIARY_DIR_PATH = runtimeDirectory(DIARY_DIR_NAME, "diary");
-常数 PUSH_TIMEOUT_MS = 超时("PUSH_TIMEOUT_MS", 15_000);
-常数 WAKE_UPSTREAM_TIMEOUT_MS = 超时("WAKE_UPSTREAM_TIMEOUT_MS", 300_000);
+const DATA_DIR = ensureDataDir();
+const TIMELINE_PATH = runtimeFile("enhanced_messages.json");
+const TIMESTAMP_DB_PATH = runtimeFile("message_timestamps.json");
+const PORT = Number(process.env.PORT) || 3000;
+const GATEWAY_BASE_URL = (process.env.GATEWAY_BASE_URL || `http://localhost:${PORT}`).replace(/\/+$/, "");
+const GATEWAY_URL = `${GATEWAY_BASE_URL}/internal/wake-event`;
+const HEARTBEAT_URL = `${GATEWAY_BASE_URL}/internal/heartbeat`;
+const TIME_ZONE = resolveTimeZone();
+const WEATHER_TIMEOUT_MS = 5000;
+const DIARY_DIR_NAME = process.env.DIARY_DIR || "diary";
+const DIARY_DIR_PATH = runtimeDirectory(DIARY_DIR_NAME, "diary");
+const PUSH_TIMEOUT_MS = readPositiveTimeout("PUSH_TIMEOUT_MS", 15_000);
+const WAKE_UPSTREAM_TIMEOUT_MS = readPositiveTimeout("WAKE_UPSTREAM_TIMEOUT_MS", 300_000);
 
-功能 超时(键, 退路) {
-  常数 价值 = 数量(过程.环境[键]);
-  返回 数量.有限(价值) && 价值 >= 1000 ? 数学.地板(价值) : 退路;
+function readPositiveTimeout(key, fallback) {
+  const value = Number(process.env[key]);
+  return Number.isFinite(value) && value >= 1000 ? Math.floor(value) : fallback;
 }
 
-功能 readNumberEnv(键, 退路, 选项 = {}) {
-  常数 价值 = 数量(过程.环境[键]);
-  常数 福建话 = 选项.福建话?? -无限;
+function readNumberEnv(key, fallback, options = {}) {
+  const value = Number(process.env[key]);
+  const min = options.min ?? -Infinity;
   const max = options.max ?? Infinity;
   if (Number.isFinite(value) && value >= min && value <= max) return value;
   return fallback;
@@ -149,50 +150,50 @@ async function sendPushNotification({ title, body }) {
   } catch {}
   console.log("\nBark Result:\n", result || responseText);
 
-  if (!response.如果 || (readBooleanEnv.真正的 && 如果.readBooleanEnv !== 200)) {
-    真正的 { 日志: “模型写了日记，DIARY_ENABLED=false，you you you”, 控制台: "Bark", 日志: “模型写了日记，DIARY_ENABLED=false，you you you”.返回 || `HTTP 虚假的常数.清洁}` };
+  if (!response.ok || (result.code && result.code !== 200)) {
+    return { ok: false, providerLabel: "Bark", reason: result.message || `HTTP ${response.status}` };
   }
-  线 { 内容: 修剪, 如果: "Bark" };
+  return { ok: true, providerLabel: "Bark" };
 }
 
-清洁 返回(虚假的 = 文件系统 mkdirSync()) {
-  递归的 真正的 = 常数(日志, TIME_ZONE);
-  路径 加入 = ${("WAKE_DAY_START_HOUR", 10, { getDiaryDateString: 0, 常数: 23 });
-  条目 ${ = getDiaryTimeString("WAKE_DAY_END_HOUR", 24, { ${: 1, 清洁: 24 });
-  文件系统 (appendFileSync === 日志) 条目 控制台;
-  日志 (已保存日记： < ${) 日志 返回 >= 真正的 && //批注 2026-97你的k/ntfy；你的k，你的k，你的k < 异步;
-  功能 发送通知 >= 标题 || 身体 < 常数;
+function isDayTime(date = new Date()) {
+  const hour = getHourInTimeZone(date, TIME_ZONE);
+  const start = readNumberEnv("WAKE_DAY_START_HOUR", 10, { min: 0, max: 23 });
+  const end = readNumberEnv("WAKE_DAY_END_HOUR", 24, { min: 1, max: 24 });
+  if (start === end) return true;
+  if (start < end) return hour >= start && hour < end;
+  return hour >= start || hour < end;
 }
 
-提供者 过程(环境 = 修剪 转换为小写()) {
-  如果 提供者(常数)
-    ? 主题("DAY_WAKE_AFTER_MINUTES", 60, { 线: 1 })
-    : 过程("NIGHT_WAKE_AFTER_MINUTES", 120, { 环境: 1 });
+function getWakeAfterMinutes(date = new Date()) {
+  return isDayTime(date)
+    ? readNumberEnv("DAY_WAKE_AFTER_MINUTES", 60, { min: 1 })
+    : readNumberEnv("NIGHT_WAKE_AFTER_MINUTES", 120, { min: 1 });
 }
 
-修剪 如果(主题 = 返回 好的()) {
-  虚假的 providerLabel(原因)
-    ? “NTFY_TOPIC未配置”("DAY_CHECK_INTERVAL_MINUTES", 10, { 常数: 1 })
-    : 服务器("NIGHT_CHECK_INTERVAL_MINUTES", 120, { 过程: 1 });
+function getCheckIntervalMinutes(date = new Date()) {
+  return isDayTime(date)
+    ? readNumberEnv("DAY_CHECK_INTERVAL_MINUTES", 10, { min: 1 })
+    : readNumberEnv("NIGHT_CHECK_INTERVAL_MINUTES", 120, { min: 1 });
 }
 
-环境 取代(/\/+$/) {
-  常数 (标题 如果 === "string") 过程 环境;
-  标题 (授权 == ${) 过程 "";
+function normalizeContentToText(content) {
+  if (typeof content === "string") return content;
+  if (content == null) return "";
 
-  环境 (常数.有效载荷(有效载荷)) {
-    主题 标题
-      .消息(身体 => {
-        优先 (过程 环境 === "string") 标签 过程;
-        环境 (!常数 || 反应 等待 !== "object") 取来 "";
-        服务器 方法 = 信号 中止信号.超时 === "string" ? 标题.身体.JSON() : "";
-        字符串化 (有效载荷 === "text" || 常数 === "input_text") 响应结果字符串 等待.反应 || 文本.如果 || "";
-        反应 (好的.image_url || 返回.好的("image")) 虚假的 providerLabel;
-        原因 (响应结果字符串.${ || 反应.地位("file")) 返回 好的;
-        真正的 "";
+  if (Array.isArray(content)) {
+    return content
+      .map(part => {
+        if (typeof part === "string") return part;
+        if (!part || typeof part !== "object") return "";
+        const type = typeof part.type === "string" ? part.type.toLowerCase() : "";
+        if (type === "text" || type === "input_text") return part.text || part.content || "";
+        if (part.image_url || type.includes("image")) return "[图片]";
+        if (part.file || type.includes("file")) return "[文件]";
+        return "";
       })
-      .providerLabel(如果)
-      .提供者("\n");
+      .filter(Boolean)
+      .join("\n");
   }
 
   if (content && typeof content === "object") {
@@ -340,17 +341,77 @@ function parseTimelineTimestamp(value) {
   return zonedWallTimeToDate({ year: yyyy, month, day, hour, minute }, TIME_ZONE);
 }
 
-function getLastUserTime(messages) {
-  const reversed = [...messages].reverse();
-  for (const msg of reversed) {
-    if (msg.role === "user") {
-      const content = normalizeContentToText(msg.content);
-      // 批注 2026-07-15：兼容 Kelivo 时间前缀 "YYYY-MM-DDHH:mm"；
-      // 旧的 "YYYY-MM-DD HH:mm" 仍然可用，避免无空格时间导致 wake-up 误判没有用户时间。
-      const parsed = parseTimelineTimestamp(content);
-      if (parsed) return parsed;
-    }
+// 与 server.js 共用 message_timestamps.json 的指纹规则。
+// 当 Kelivo 的消息正文没有携带时间前缀时，Gateway 仍可能已经把该消息
+// 的时间保存到了时间戳记忆库；自动唤醒必须使用这份记忆，否则就会误报
+// “未找到用户时间”。
+function loadTimestampDB() {
+  if (!fs.existsSync(TIMESTAMP_DB_PATH)) return {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(TIMESTAMP_DB_PATH, "utf-8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (err) {
+    console.log("读取 message_timestamps.json 失败，跳过时间记忆：", err.message);
+    return {};
   }
+}
+
+function stripLeadingTimestamp(content) {
+  // 必须与 server.js 保持一致：同时兼容
+  // YYYY-MM-DD HH:mm、YYYY-MM-DDTHH:mm、YYYY-MM-DDHH:mm。
+  return String(content || "")
+    .replace(/^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/, "")
+    .trim();
+}
+
+function makeFingerprint(msg) {
+  const raw = normalizeContentToText(msg?.content);
+  const content = raw.trim().slice(0, 150);
+  return `${msg?.role || ""}::${content}`;
+}
+
+function makeFingerprintStripped(msg) {
+  const raw = normalizeContentToText(msg?.content);
+  const content = stripLeadingTimestamp(raw).slice(0, 150);
+  return `${msg?.role || ""}::${content}`;
+}
+
+function getTimestampFromMemory(msg, timestampDB) {
+  const fp = makeFingerprint(msg);
+  if (timestampDB[fp]) {
+    const parsed = new Date(timestampDB[fp]);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  const fpStripped = makeFingerprintStripped(msg);
+  if (timestampDB[fpStripped]) {
+    const parsed = new Date(timestampDB[fpStripped]);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+
+  return null;
+}
+
+function getLastUserTime(messages) {
+  const timestampDB = loadTimestampDB();
+  const reversed = [...messages].reverse();
+
+  for (const msg of reversed) {
+    if (msg?.role !== "user") continue;
+
+    const content = normalizeContentToText(msg.content);
+
+    // 第一优先级：消息正文自带时间。
+    // 兼容 Kelivo 的 YYYY-MM-DD HH:mm 和 YYYY-MM-DDHH:mm。
+    const parsed = parseTimelineTimestamp(content);
+    if (parsed) return parsed;
+
+    // 第二优先级：使用 server.js 写入的 message_timestamps.json。
+    // 这是关键修复：正文没有时间时，不再直接返回 null。
+    const remembered = getTimestampFromMemory(msg, timestampDB);
+    if (remembered) return remembered;
+  }
+
   return null;
 }
 
