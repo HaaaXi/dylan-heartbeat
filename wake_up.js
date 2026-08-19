@@ -392,6 +392,67 @@ function getTimestampFromMemory(msg, timestampDB) {
   return null;
 }
 
+function parseMessageTimeValue(value) {
+  if (value == null || value === "") return null;
+
+  // Date 对象
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value;
+  }
+
+  // 数字时间戳：
+  // 兼容秒 / 毫秒
+  if (typeof value === "number") {
+    const ms = value < 1e12 ? value * 1000 : value;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const text = String(value).trim();
+  if (!text) return null;
+
+  // 先尝试 ISO / 标准时间
+  const direct = new Date(text);
+  if (!Number.isNaN(direct.getTime())) {
+    return direct;
+  }
+
+  // 再尝试 Kelivo 的墙上时间格式
+  return parseTimelineTimestamp(text);
+}
+
+function getMessageTimestamp(msg, timestampDB) {
+  if (!msg || typeof msg !== "object") return null;
+
+  // ① 消息对象自身携带时间
+  const directFields = [
+    msg.timestamp,
+    msg.created_at,
+    msg.createdAt,
+    msg.sent_at,
+    msg.sentAt,
+    msg.time,
+    msg.datetime,
+    msg.date
+  ];
+
+  for (const value of directFields) {
+    const parsed = parseMessageTimeValue(value);
+    if (parsed) return parsed;
+  }
+
+  // ② 消息正文前缀时间
+  const content = normalizeContentToText(msg.content);
+  const contentTime = parseTimelineTimestamp(content);
+  if (contentTime) return contentTime;
+
+  // ③ Gateway 的时间记忆库
+  const remembered = getTimestampFromMemory(msg, timestampDB);
+  if (remembered) return remembered;
+
+  return null;
+}
+
 function getLastUserTime(messages) {
   const timestampDB = loadTimestampDB();
   const reversed = [...messages].reverse();
@@ -399,18 +460,19 @@ function getLastUserTime(messages) {
   for (const msg of reversed) {
     if (msg?.role !== "user") continue;
 
-    const content = normalizeContentToText(msg.content);
+    const timestamp = getMessageTimestamp(msg, timestampDB);
 
-    // 第一优先级：消息正文自带时间。
-    // 兼容 Kelivo 的 YYYY-MM-DD HH:mm 和 YYYY-MM-DDHH:mm。
-    const parsed = parseTimelineTimestamp(content);
-    if (parsed) return parsed;
-
-    // 第二优先级：使用 server.js 写入的 message_timestamps.json。
-    // 这是关键修复：正文没有时间时，不再直接返回 null。
-    const remembered = getTimestampFromMemory(msg, timestampDB);
-    if (remembered) return remembered;
+    if (timestamp) {
+      console.log(
+        `找到用户最后消息时间：${formatDateTimeInTimeZone(timestamp, TIME_ZONE)}`
+      );
+      return timestamp;
+    }
   }
+
+  console.log(
+    `未找到用户时间｜时间线消息数=${messages.length}｜时间戳库条目=${Object.keys(timestampDB).length}`
+  );
 
   return null;
 }
