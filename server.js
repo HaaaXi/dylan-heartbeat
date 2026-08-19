@@ -571,18 +571,66 @@ app.post("/v1/chat/completions", async (req, reply) => {
     const oldTimeline = loadTimeline();
 
     const tsDB = loadTimestampDB();
-    let tsDBDirty = false;
-    for (const msg of kelivoMessages) {
-      if (msg.role === "system") continue;
-      if (msg.role === "tool") continue;
-      const ts = extractTimestamp(normalizeContentToText(msg.content));
-      if (!ts) continue;
-      const fp = makeFingerprint(msg);
-      const fpStripped = makeFingerprintStripped(msg);
-      if (!tsDB[fp]) { tsDB[fp] = ts.toISOString(); tsDBDirty = true; }
-      if (!tsDB[fpStripped]) { tsDB[fpStripped] = ts.toISOString(); tsDBDirty = true; }
+let tsDBDirty = false;
+
+// 先保存 Kelivo 消息正文中自带的时间。
+// 如果正文没有时间，则给本次请求中“最后一条真实用户消息”记录请求到达时间。
+const requestTime = new Date();
+
+for (const msg of kelivoMessages) {
+  if (msg.role === "system") continue;
+  if (msg.role === "tool") continue;
+
+  const content = normalizeContentToText(msg.content);
+  const ts = extractTimestamp(content);
+
+  const fp = makeFingerprint(msg);
+  const fpStripped = makeFingerprintStripped(msg);
+
+  if (ts) {
+    if (!tsDB[fp]) {
+      tsDB[fp] = ts.toISOString();
+      tsDBDirty = true;
     }
-    if (tsDBDirty) saveTimestampDB(tsDB);
+
+    if (!tsDB[fpStripped]) {
+      tsDB[fpStripped] = ts.toISOString();
+      tsDBDirty = true;
+    }
+  }
+}
+
+// Kelivo 通常会把完整聊天历史一起发送。
+// 因此只有最后一条真实 user 消息才代表这次实际的用户发送时间。
+for (let i = kelivoMessages.length - 1; i >= 0; i--) {
+  const msg = kelivoMessages[i];
+
+  if (msg?.role !== "user") continue;
+
+  const content = normalizeContentToText(msg.content);
+
+  // <system> 伪用户消息不算真实用户消息。
+  if (content.trim().startsWith("<system>")) continue;
+
+  const fp = makeFingerprint(msg);
+  const fpStripped = makeFingerprintStripped(msg);
+
+  const requestIso = requestTime.toISOString();
+
+  if (!tsDB[fp]) {
+    tsDB[fp] = requestIso;
+    tsDBDirty = true;
+  }
+
+  if (!tsDB[fpStripped]) {
+    tsDB[fpStripped] = requestIso;
+    tsDBDirty = true;
+  }
+
+  break;
+}
+
+if (tsDBDirty) saveTimestampDB(tsDB);
 
     const finalTimeline = buildTimeline(kelivoMessages, tsDB);
     saveTimeline(finalTimeline);
