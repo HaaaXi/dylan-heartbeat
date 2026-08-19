@@ -453,44 +453,6 @@ function getMessageTimestamp(msg, timestampDB) {
   return null;
 }
 
-// ========================
-// 用户消息时间戳记忆
-// ========================
-
-const TIMESTAMP_DB_PATH = runtimeFile("message_timestamps.json");
-
-function loadTimestampDB() {
-  if (!fs.existsSync(TIMESTAMP_DB_PATH)) return {};
-
-  try {
-    return fs.readJsonSync(TIMESTAMP_DB_PATH);
-  } catch (err) {
-    console.log("读取 message_timestamps.json 失败:", err.message);
-    return {};
-  }
-}
-
-function makeTimestampFingerprint(msg) {
-  const raw = normalizeContentToText(msg?.content);
-  const content = raw.trim().slice(0, 150);
-  return `${msg?.role || ""}::${content}`;
-}
-
-function stripLeadingTimestamp(content) {
-  return String(content || "")
-    .replace(
-      /^（?\s*\d{4}[-/]\d{1,2}[-/]\d{1,2}(?:[ T]?)\d{1,2}[:：]\d{2}[）\s]*/,
-      ""
-    )
-    .trim();
-}
-
-function makeTimestampFingerprintStripped(msg) {
-  const raw = normalizeContentToText(msg?.content);
-  const content = stripLeadingTimestamp(raw).slice(0, 150);
-  return `${msg?.role || ""}::${content}`;
-}
-
 function getLastUserTime(messages) {
   const tsDB = loadTimestampDB();
 
@@ -505,13 +467,12 @@ function getLastUserTime(messages) {
 
     const content = normalizeContentToText(msg.content);
 
-    // <system> 伪 user 消息不能算用户真正发送的消息
+    // 排除系统伪装成 user 的消息
     if (content.trim().startsWith("<system>")) continue;
 
     // --------------------------------
-    // 方案 1：直接从消息正文解析时间
+    // 方案 1：直接从消息正文中解析时间
     // --------------------------------
-
     const parsed = parseTimelineTimestamp(content);
 
     if (parsed) {
@@ -522,9 +483,8 @@ function getLastUserTime(messages) {
     }
 
     // --------------------------------
-    // 方案 2：从 message_timestamps.json 查询
+    // 方案 2：使用 message_timestamps.json
     // --------------------------------
-
     const fp = makeTimestampFingerprint(msg);
 
     if (tsDB[fp]) {
@@ -539,9 +499,8 @@ function getLastUserTime(messages) {
     }
 
     // --------------------------------
-    // 方案 3：去掉时间前缀后再次查询
+    // 方案 3：去掉时间前缀后再次匹配
     // --------------------------------
-
     const fpStripped = makeTimestampFingerprintStripped(msg);
 
     if (tsDB[fpStripped]) {
